@@ -1,0 +1,140 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "API Request Throughput (Req/Sec)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(gobeyond_http_requests_total[1m])) by (method, status_code)",
+          "legendFormat": "{{method}} - {{status_code}}"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "title": "HTTP 5xx Error Rate (%)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "100 * (sum(rate(gobeyond_http_requests_total{status_code=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(gobeyond_http_requests_total[5m])), 0.001)",
+          "legendFormat": "5xx Error %"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "title": "API Request Latency (p95 seconds)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(gobeyond_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 Latency"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "title": "PostgreSQL Connection Pool (Checked Out vs Idle)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_db_pool_checked_out",
+          "legendFormat": "Checked Out"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_db_pool_checked_in",
+          "legendFormat": "Checked In (Idle)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_db_pool_overflow",
+          "legendFormat": "Overflow"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
+      "id": 5,
+      "title": "Datastore & Worker Health (1=UP, 0=DOWN)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_db_up",
+          "legendFormat": "PostgreSQL"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_redis_up",
+          "legendFormat": "Redis"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_worker_heartbeat_up",
+          "legendFormat": "ARQ Worker"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 },
+      "id": 6,
+      "title": "Active Temporary Inventory Locks",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_active_inventory_locks",
+          "legendFormat": "Active Locks"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 16 },
+      "id": 7,
+      "title": "Notification Outbox Queue by Status",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "gobeyond_notification_outbox_jobs",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["gobeyond", "production"],
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "GO BEYOND - Platform Overview & Health",
+  "uid": "gobeyond-metrics-v1"
+}

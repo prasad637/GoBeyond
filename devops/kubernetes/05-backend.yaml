@@ -1,0 +1,189 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gobeyond-backend
+  namespace: gobeyond
+  labels:
+    app: gobeyond-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gobeyond-backend
+  template:
+    metadata:
+      labels:
+        app: gobeyond-backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: alembic-migrate
+          image: gobeyond/backend:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              python -c "import time, os; from sqlalchemy import create_engine, text; url = os.environ['DATABASE_URL'];
+              for _ in range(30):
+                try:
+                  with create_engine(url).connect() as c: c.execute(text('SELECT 1')); break
+                except Exception: time.sleep(2)"
+              alembic upgrade head
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: ENVIRONMENT
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: DATABASE_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: SECRET_KEY
+      containers:
+        - name: backend
+          image: gobeyond/backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: DEBUG
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: DATABASE_URL
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: DB_MAX_OVERFLOW
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: REDIS_URL
+            - name: REDIS_REQUIRED_IN_PRODUCTION
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: REDIS_REQUIRED_IN_PRODUCTION
+            - name: USE_MEMORY_LOCK_FALLBACK
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: USE_MEMORY_LOCK_FALLBACK
+            - name: BACKEND_CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: BACKEND_CORS_ORIGINS
+            - name: COOKIE_SECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: COOKIE_SECURE
+            - name: RAZORPAY_SANDBOX_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: RAZORPAY_SANDBOX_MODE
+            - name: OTP_SANDBOX_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: OTP_SANDBOX_MODE
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: SECRET_KEY
+            - name: RAZORPAY_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: RAZORPAY_KEY_ID
+            - name: RAZORPAY_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: RAZORPAY_KEY_SECRET
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gobeyond-backend-service
+  namespace: gobeyond
+spec:
+  selector:
+    app: gobeyond-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gobeyond-backend-hpa
+  namespace: gobeyond
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gobeyond-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+

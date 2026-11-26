@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gobeyond-worker
+  namespace: gobeyond
+  labels:
+    app: gobeyond-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gobeyond-worker
+  template:
+    metadata:
+      labels:
+        app: gobeyond-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-datastores
+          image: gobeyond/backend:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              python -c "import time, os, redis; from sqlalchemy import create_engine, text;
+              for _ in range(30):
+                try:
+                  redis.from_url(os.environ['REDIS_URL']).ping();
+                  with create_engine(os.environ['DATABASE_URL']).connect() as c: c.execute(text('SELECT 1'));
+                  break
+                except Exception: time.sleep(2)"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: REDIS_URL
+      containers:
+        - name: worker
+          image: gobeyond/backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "arq", "app.worker.tasks.WorkerSettings"]
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: ENVIRONMENT
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: DEBUG
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: DATABASE_URL
+            - name: DB_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: WORKER_DB_POOL_SIZE
+            - name: DB_MAX_OVERFLOW
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: WORKER_DB_MAX_OVERFLOW
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: REDIS_URL
+            - name: REDIS_REQUIRED_IN_PRODUCTION
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: REDIS_REQUIRED_IN_PRODUCTION
+            - name: USE_MEMORY_LOCK_FALLBACK
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: USE_MEMORY_LOCK_FALLBACK
+            - name: RAZORPAY_SANDBOX_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: RAZORPAY_SANDBOX_MODE
+            - name: OTP_SANDBOX_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: OTP_SANDBOX_MODE
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: SECRET_KEY
+            - name: RAZORPAY_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: RAZORPAY_KEY_ID
+            - name: RAZORPAY_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gobeyond-secrets
+                  key: RAZORPAY_KEY_SECRET
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "python -c \"import os, redis; from sqlalchemy import create_engine, text; redis.from_url(os.environ['REDIS_URL']).ping(); engine = create_engine(os.environ['DATABASE_URL']); conn = engine.connect(); conn.execute(text('SELECT 1')); conn.close()\""
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "768Mi"
+              cpu: "800m"

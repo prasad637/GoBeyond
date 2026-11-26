@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gobeyond
+  labels:
+    app.kubernetes.io/name: gobeyond
+    app.kubernetes.io/part-of: gobeyond-platform
+

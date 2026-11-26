@@ -1,0 +1,216 @@
+"""GO BEYOND — Financial & Revenue Computation Service
+
+Provides mathematically verified calculations for:
+1. Gross Confirmed Booking Value
+2. Total Successfully Captured Payment Value (deduplicating by unique gateway transaction ID)
+3. Total Successfully Refunded Amount (deduplicating by unique gateway refund ID)
+4. Net Collected Amount (Captured - Refunded)
+5. Partner Settlements Payable & Actual Platform Revenue (accounting for partner commission rates)
+"""
+from typing import Dict, Any, Optional, List
+from sqlalchemy.orm import Session
+from sqlalchemy import text, func
+from app.models.booking import Booking
+from app.models.payment import Payment, Refund
+from app.models.partner import Partner
+
+
+def calculate_revenue_metrics(
+    db: Session,
+    booking_ids: Optional[List[int]] = None
+) -> Dict[str, float]:
+    """
+    Computes all 5 financial metrics.
+    
+    If booking_ids is supplied, calculations are scoped strictly to the specified bookings.
+    Otherwise, calculations are performed globally across all platform records.
+    """
+    is_postgres = db.bind.dialect.name == "postgresql"
+
+    if booking_ids is not None and len(booking_ids) == 0:
+        return {
+            "gross_confirmed_booking_value": 0.0,
+            "total_captured_payments": 0.0,
+            "total_refunded_amount": 0.0,
+            "net_collected_amount": 0.0,
+            "partner_settlements_payable": 0.0,
+            "actual_platform_revenue": 0.0,
+            "total_revenue": 0.0,
+        }
+
+    where_booking_scope = ""
+    where_refund_scope = ""
+    params: Dict[str, Any] = {}
+
+    if booking_ids is not None:
+        where_booking_scope = "AND b.id IN :booking_ids"
+        where_refund_scope = "AND r.booking_id IN :booking_ids"
+        params["booking_ids"] = tuple(booking_ids)
+
+    if is_postgres:
+        # 1. Gross Confirmed Booking Value
+        sql_gross = f"""
+            SELECT COALESCE(SUM(b.final_payable), 0.0)
+            FROM bookings b
+            WHERE b.status = 'CONFIRMED' {where_booking_scope};
+        """
+        gross_booking_value = float(db.execute(text(sql_gross), params).scalar() or 0.0)
+
+        # 2. Total Successfully Captured Payment Value
+        # Deduplicate by unique gateway_payment_id (or fallback to p.id::text if null).
+        # Multiple distinct payments for a booking (partial/split payments) each have distinct
+        # gateway_payment_ids, so both are summed.
+        # Duplicate webhooks sharing the same gateway_payment_id are grouped and counted once.
+        # Failed, reversed, and uncaptured payments are excluded.
+        sql_captured = f"""
+            SELECT COALESCE(SUM(tx.amount), 0.0)
+            FROM (
+                SELECT 
+                    COALESCE(p.gateway_payment_id, p.id::text) AS gateway_tx_id,
+                    MAX(p.amount) AS amount
+                FROM payments p
+                JOIN bookings b ON b.id = p.booking_id
+                WHERE p.status IN ('CAPTURED', 'SUCCESS')
+                  AND p.amount > 0
+                  {where_booking_scope}
+                GROUP BY COALESCE(p.gateway_payment_id, p.id::text)
+            ) tx;
+        """
+        total_captured = float(db.execute(text(sql_captured), params).scalar() or 0.0)
+
+        # 3. Total Successfully Refunded Amount
+        # Deduplicate by unique gateway_refund_id (or fallback to r.id::text if null).
+        # Processed/successful refunds are summed; failed/initiated refund attempts are excluded.
+        sql_refunds = f"""
+            SELECT COALESCE(SUM(rf.amount), 0.0)
+            FROM (
+                SELECT 
+                    COALESCE(r.gateway_refund_id, r.id::text) AS refund_tx_id,
+                    MAX(r.amount) AS amount
+                FROM refunds r
+                WHERE r.status IN ('PROCESSED', 'SUCCESS')
+                  AND r.amount > 0
+                  {where_refund_scope}
+                GROUP BY COALESCE(r.gateway_refund_id, r.id::text)
+            ) rf;
+        """
+        total_refunded = float(db.execute(text(sql_refunds), params).scalar() or 0.0)
+
+        # 4. Net Collected Amount (Cash collected minus cash refunded)
+        net_collected = max(0.0, round(total_captured - total_refunded, 2))
+
+        # 5. Partner Settlements & Actual Platform Revenue
+        # For bookings linked to partners, platform retains partner.commission_rate (default 10%),
+        # and the remainder (90%) is payable to the partner.
+        sql_platform_rev = f"""
+            WITH booking_captured AS (
+                SELECT 
+                    p.booking_id,
+                    SUM(p.amount) AS captured_amount
+                FROM (
+                    SELECT 
+                        p_inner.booking_id,
+                        COALESCE(p_inner.gateway_payment_id, p_inner.id::text) AS gateway_tx_id,
+                        MAX(p_inner.amount) AS amount
+                    FROM payments p_inner
+                    WHERE p_inner.status IN ('CAPTURED', 'SUCCESS')
+                      AND p_inner.amount > 0
+                    GROUP BY p_inner.booking_id, COALESCE(p_inner.gateway_payment_id, p_inner.id::text)
+                ) p
+                JOIN bookings b ON b.id = p.booking_id
+                WHERE b.status = 'CONFIRMED' {where_booking_scope}
+                GROUP BY p.booking_id
+            ),
+            booking_refunded AS (
+                SELECT 
+                    r.booking_id,
+                    SUM(r.amount) AS refund_amount
+                FROM (
+                    SELECT 
+                        r_inner.booking_id,
+                        COALESCE(r_inner.gateway_refund_id, r_inner.id::text) AS refund_tx_id,
+                        MAX(r_inner.amount) AS amount
+                    FROM refunds r_inner
+                    WHERE r_inner.status IN ('PROCESSED', 'SUCCESS')
+                      AND r_inner.amount > 0
+                    GROUP BY r_inner.booking_id, COALESCE(r_inner.gateway_refund_id, r_inner.id::text)
+                ) r
+                GROUP BY r.booking_id
+            ),
+            booking_net AS (
+                SELECT 
+                    bc.booking_id,
+                    bc.captured_amount - COALESCE(br.refund_amount, 0.0) AS net_booking_amount
+                FROM booking_captured bc
+                LEFT JOIN booking_refunded br ON br.booking_id = bc.booking_id
+            ),
+            booking_partners AS (
+                SELECT 
+                    b.id AS booking_id,
+                    COALESCE(
+                        (SELECT pt.commission_rate FROM partners pt JOIN cinemas c ON c.partner_id = pt.id JOIN screens s ON s.cinema_id = c.id JOIN movie_shows ms ON ms.screen_id = s.id JOIN booking_items bi ON (bi.details->>'show_id')::int = ms.id WHERE bi.booking_id = b.id LIMIT 1),
+                        (SELECT pt.commission_rate FROM partners pt JOIN restaurants r ON r.partner_id = pt.id JOIN dining_tables dt ON dt.restaurant_id = r.id JOIN booking_items bi ON bi.item_id = dt.id AND bi.item_type = 'TABLE' WHERE bi.booking_id = b.id LIMIT 1),
+                        (SELECT pt.commission_rate FROM partners pt JOIN events ev ON ev.partner_id = pt.id JOIN event_ticket_types ett ON ett.event_id = ev.id JOIN booking_items bi ON bi.item_id = ett.id AND bi.item_type = 'TICKET' WHERE bi.booking_id = b.id LIMIT 1),
+                        (SELECT pt.commission_rate FROM partners pt JOIN activities act ON act.partner_id = pt.id JOIN activity_slots acs ON acs.activity_id = act.id JOIN booking_items bi ON bi.item_id = acs.id AND bi.item_type = 'SLOT' WHERE bi.booking_id = b.id LIMIT 1),
+                        (SELECT pt.commission_rate FROM partners pt JOIN sports_venues sv ON sv.partner_id = pt.id JOIN activities act ON act.venue_id = sv.id JOIN activity_slots acs ON acs.activity_id = act.id JOIN booking_items bi ON bi.item_id = acs.id AND bi.item_type = 'SLOT' WHERE bi.booking_id = b.id LIMIT 1),
+                        0.10
+                    ) AS commission_rate
+                FROM bookings b
+                WHERE b.status = 'CONFIRMED'
+                  {where_booking_scope}
+            )
+            SELECT 
+                COALESCE(SUM(bn.net_booking_amount * bp.commission_rate), 0.0) AS platform_revenue,
+                COALESCE(SUM(bn.net_booking_amount * (1.0 - bp.commission_rate)), 0.0) AS partner_settlement
+            FROM booking_net bn
+            JOIN booking_partners bp ON bp.booking_id = bn.booking_id
+            WHERE bn.net_booking_amount > 0;
+        """
+        rev_row = db.execute(text(sql_platform_rev), params).first()
+        actual_platform_revenue = round(float(rev_row[0] if rev_row else 0.0), 2)
+        partner_settlements = round(float(rev_row[1] if rev_row else 0.0), 2)
+
+    else:
+        # SQLite-compatible fallback for fast local unit tests
+        b_query = db.query(Booking).filter(Booking.status == "CONFIRMED")
+        if booking_ids is not None:
+            b_query = b_query.filter(Booking.id.in_(booking_ids))
+        gross_booking_value = float(sum(b.final_payable for b in b_query.all()))
+
+        p_query = db.query(Payment).filter(Payment.status.in_(["CAPTURED", "SUCCESS"]), Payment.amount > 0)
+        if booking_ids is not None:
+            p_query = p_query.filter(Payment.booking_id.in_(booking_ids))
+        
+        seen_tx = set()
+        total_captured = 0.0
+        for p in p_query.all():
+            tx_key = p.gateway_payment_id or str(p.id)
+            if tx_key not in seen_tx:
+                seen_tx.add(tx_key)
+                total_captured += p.amount
+
+        r_query = db.query(Refund).filter(Refund.status.in_(["PROCESSED", "SUCCESS"]), Refund.amount > 0)
+        if booking_ids is not None:
+            r_query = r_query.filter(Refund.booking_id.in_(booking_ids))
+        
+        seen_rf = set()
+        total_refunded = 0.0
+        for r in r_query.all():
+            rf_key = r.gateway_refund_id or str(r.id)
+            if rf_key not in seen_rf:
+                seen_rf.add(rf_key)
+                total_refunded += r.amount
+
+        net_collected = max(0.0, round(total_captured - total_refunded, 2))
+        actual_platform_revenue = round(net_collected * 0.10, 2)
+        partner_settlements = round(net_collected * 0.90, 2)
+
+    return {
+        "gross_confirmed_booking_value": round(gross_booking_value, 2),
+        "total_captured_payments": round(total_captured, 2),
+        "total_refunded_amount": round(total_refunded, 2),
+        "net_collected_amount": net_collected,
+        "partner_settlements_payable": partner_settlements,
+        "actual_platform_revenue": actual_platform_revenue,
+        "total_revenue": actual_platform_revenue,
+    }

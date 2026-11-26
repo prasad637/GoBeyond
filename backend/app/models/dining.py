@@ -1,0 +1,101 @@
+from sqlalchemy import Column, Integer, String, Boolean, Float, Numeric, ForeignKey, Date, Time, DateTime, Text, JSON, Index
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.models.base import TimestampMixin
+
+
+class Restaurant(Base, TimestampMixin):
+    __tablename__ = "restaurants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    partner_id = Column(Integer, ForeignKey("partners.id", ondelete="CASCADE"), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(280), unique=True, index=True, nullable=False)
+    cuisines = Column(JSON, default=list)  # ["Hyderabadi", "Biryani", "North Indian", "Continental"]
+    cost_for_two = Column(Integer, default=1000, nullable=False)
+    address = Column(String(500), nullable=False)
+    phone = Column(String(20), nullable=False)
+    timings = Column(String(100), default="11:00 AM - 11:30 PM", nullable=False)
+    images = Column(JSON, default=list)
+    rating = Column(Float, default=4.2, nullable=False)
+    review_count = Column(Integer, default=0, nullable=False)
+    has_buffet = Column(Boolean, default=False, nullable=False)
+    has_alcohol = Column(Boolean, default=False, nullable=False)
+    is_pure_veg = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    partner = relationship("Partner", back_populates="restaurants")
+    location = relationship("Location")
+    menus = relationship("RestaurantMenu", back_populates="restaurant", cascade="all, delete-orphan")
+    tables = relationship("DiningTable", back_populates="restaurant", cascade="all, delete-orphan")
+    reservations = relationship("DiningReservation", back_populates="restaurant", cascade="all, delete-orphan")
+
+
+class RestaurantMenu(Base, TimestampMixin):
+    __tablename__ = "restaurant_menus"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=False)
+    category = Column(String(100), nullable=False)  # Starters, Biryani, Main Course, Desserts, Beverages
+    item_name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    price = Column(Numeric(12, 2), nullable=False)
+    is_veg = Column(Boolean, default=True, nullable=False)
+    is_bestseller = Column(Boolean, default=False, nullable=False)
+    image_url = Column(String(500), nullable=True)
+    is_available = Column(Boolean, default=True, nullable=False)
+
+    restaurant = relationship("Restaurant", back_populates="menus")
+
+
+class DiningTable(Base, TimestampMixin):
+    __tablename__ = "dining_tables"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=False)
+    table_number = Column(String(50), nullable=False)  # T-1, Outdoor-3, Rooftop-A
+    capacity = Column(Integer, default=4, nullable=False)  # 2, 4, 6, 8, etc.
+    zone = Column(String(100), default="Indoor", nullable=False)  # Indoor AC, Outdoor Terrace, Rooftop, Private Cabana
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    restaurant = relationship("Restaurant", back_populates="tables")
+    reservations = relationship("DiningReservation", back_populates="table")
+
+
+class DiningReservation(Base, TimestampMixin):
+    __tablename__ = "dining_reservations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=False)
+    table_id = Column(Integer, ForeignKey("dining_tables.id", ondelete="CASCADE"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=True)
+    reservation_date = Column(Date, nullable=False)
+    reservation_time = Column(Time, nullable=False)
+    duration_minutes = Column(Integer, default=90, nullable=False)  # 90 mins dining duration
+    buffer_minutes = Column(Integer, default=15, nullable=False)    # 15 mins sanitization & turnover buffer
+    start_datetime = Column(DateTime, nullable=True)               # Timestamp with timezone start
+    end_datetime = Column(DateTime, nullable=True)                 # start + duration + buffer
+    guest_count = Column(Integer, default=2, nullable=False)
+    special_requests = Column(Text, nullable=True)
+    status = Column(String(50), default="CONFIRMED", nullable=False)  # PENDING, CONFIRMED, SEATED, CANCELLED, NO_SHOW
+
+    restaurant = relationship("Restaurant", back_populates="reservations")
+    table = relationship("DiningTable", back_populates="reservations")
+    user = relationship("User")
+    booking = relationship("Booking")
+
+    __table_args__ = (
+        Index(
+            "uq_active_dining_reservation",
+            "restaurant_id",
+            "table_id",
+            "reservation_date",
+            "reservation_time",
+            unique=True,
+            postgresql_where=(Column("status").in_(["PENDING", "CONFIRMED", "SEATED"])),
+            sqlite_where=(Column("status").in_(["PENDING", "CONFIRMED", "SEATED"])),
+        ),
+    )
+

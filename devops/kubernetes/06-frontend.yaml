@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gobeyond-frontend
+  namespace: gobeyond
+  labels:
+    app: gobeyond-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gobeyond-frontend
+  template:
+    metadata:
+      labels:
+        app: gobeyond-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: gobeyond/frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          # Build the frontend image with `--build-arg NEXT_PUBLIC_API_URL=""` so client requests use same-origin `/api/v1`.
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: NEXT_PUBLIC_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: NEXT_PUBLIC_API_URL
+            - name: INTERNAL_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gobeyond-config
+                  key: INTERNAL_API_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
+              cpu: "800m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gobeyond-frontend-service
+  namespace: gobeyond
+spec:
+  selector:
+    app: gobeyond-frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gobeyond-frontend-hpa
+  namespace: gobeyond
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gobeyond-frontend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+

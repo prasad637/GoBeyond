@@ -1,0 +1,269 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+ * GO BEYOND — "Nocturne Editorial" Design System Tokens
+ * ========================================================================== */
+:root,
+.dark {
+  /* Surface Hierarchy (RGB triplets enable Tailwind opacity modifiers e.g. bg-canvas/90) */
+  --color-bg-canvas: 9 10 15;
+  /* #090A0F - Deep obsidian canvas */
+  --color-bg-surface: 17 19 26;
+  /* #11131A - Cards, panels, sidebars */
+  --color-bg-surface-2: 24 27 36;
+  /* #181B24 - Inputs, secondary cards, dropdowns */
+  --color-bg-surface-3: 34 38 51;
+  /* #222633 - Hover states, active rows */
+
+  /* Direct Hex Surface Tokens */
+  --bg-canvas: #090A0F;
+  --bg-surface: #11131A;
+  --bg-surface-2: #181B24;
+  --bg-surface-3: #222633;
+
+  /* Hairline & Focus Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text Hierarchy (RGB triplets + direct hex) */
+  --color-text-primary: 255 255 255;
+  /* #FFFFFF */
+  --color-text-secondary: 161 161 170;
+  /* #A1A1AA */
+  --color-text-muted: 113 113 122;
+  /* #71717A */
+  --text-primary: #FFFFFF;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+
+  /* Brand & Semantic Accents */
+  --accent-primary: #F43F5E;
+  --accent-primary-hover: #E11D48;
+  --accent-console: #8B5CF6;
+  --accent-gold: #F5C76B;
+  --accent-champagne: #F5C76B;
+  --status-success: #10B981;
+  --status-warning: #F59E0B;
+  --status-danger: #EF4444;
+  --status-info: #38BDF8;
+
+  /* Shape & Elevation Tokens */
+  --radius-control: 0.5rem;
+  /* 8px */
+  --radius-card: 0.75rem;
+  /* 12px */
+  --radius-panel: 1rem;
+  /* 16px */
+  --radius-pill: 9999px;
+
+  --shadow-surface: 0 1px 2px 0 rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-elevated: 0 12px 32px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-modal: 0 24px 60px -12px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+/* ==========================================================================
+ * Base Layer & Interactive Element Hygiene
+ * ========================================================================== */
+@layer base {
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-canvas text-primary font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: rgba(244, 63, 94, 0.35);
+    color: #FFFFFF;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display), var(--font-inter), system-ui, sans-serif;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  /* Accessible default keyboard focus indicator without breaking explicit Tailwind ring styles */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid rgba(244, 63, 94, 0.75);
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    color-scheme: dark;
+  }
+
+  /* Override browser light-yellow/white autofill backgrounds in dark mode */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: #F8FAFC;
+    -webkit-box-shadow: 0 0 0 1000px #181B24 inset;
+    caret-color: #F8FAFC;
+    transition: background-color 5000s ease-in-out 0s;
+  }
+}
+
+/* ==========================================================================
+ * Custom Smooth Scrollbar
+ * ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #222633 #090A0F;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-surface-3);
+  border-radius: 9999px;
+  border: 2px solid var(--bg-canvas);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #33394D;
+}
+
+/* ==========================================================================
+ * Motion & Utility Helpers (Includes Backwards-Compat Animation Tokens)
+ * ========================================================================== */
+@keyframes gbFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gbScaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes gbSlideInFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gbShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@layer utilities {
+  .animate-fadeIn {
+    animation: gbFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-scaleUp {
+    animation: gbScaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* Polyfills for SearchBar.tsx animate-in utility classes without tailwindcss-animate */
+  .animate-in.fade-in {
+    animation: gbFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-in.slide-in-from-top-2 {
+    animation: gbSlideInFromTop 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .skeleton-shimmer {
+    background: linear-gradient(90deg,
+        rgba(24, 27, 36, 0.9) 0%,
+        rgba(34, 38, 51, 0.95) 50%,
+        rgba(24, 27, 36, 0.9) 100%);
+    background-size: 200% 100%;
+    animation: gbShimmer 1.8s ease-in-out infinite;
+  }
+
+  .tabular-nums-lining {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+ * Accessibility: Respect Reduced Motion Preferences
+ * ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

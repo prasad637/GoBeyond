@@ -1,0 +1,112 @@
+groups:
+  - name: gobeyond_platform_alerts
+    rules:
+      - alert: BackendUnavailable
+        expr: up{job="gobeyond-backend"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "GO BEYOND FastAPI backend scrape target is unreachable"
+          description: "Prometheus cannot scrape backend:8000/metrics for >= 30s."
+
+      - alert: DatabaseUnavailable
+        expr: gobeyond_db_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connectivity check failed"
+          description: "gobeyond_db_up has been 0 for >= 30s."
+
+      - alert: RedisUnavailable
+        expr: gobeyond_redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis connectivity check failed"
+          description: "Fail-closed locks, OTPs, and sensitive rate limiters return 503 while Redis is down."
+
+      - alert: WorkerHeartbeatMissing
+        expr: gobeyond_worker_heartbeat_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ARQ background worker heartbeat missing from Redis"
+          description: "gobeyond:worker:heartbeat expired (>90s TTL); hold expiry & outbox dispatch may be paused."
+
+      - alert: HighHttp5xxRate
+        expr: |
+          (
+            sum(rate(gobeyond_http_requests_total{status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(gobeyond_http_requests_total[5m])), 0.001)
+          ) > 0.05
+          and sum(rate(gobeyond_http_requests_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx server error ratio (> 5%)"
+          description: "More than 5% of API requests are failing with HTTP 5xx over the last 5 minutes."
+
+      - alert: HighApiLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(gobeyond_http_request_duration_seconds_bucket[5m])) by (le)) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency exceeded 1.0s"
+          description: "Trailing 5-minute 95th percentile backend response latency is above 1000ms."
+
+      - alert: PaymentWebhookFailures
+        expr: sum(increase(gobeyond_http_requests_total{endpoint="/api/v1/payments/webhook",status_code=~"4..|5.."}[5m])) >= 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Repeated Razorpay webhook failures (>= 3 in 5m)"
+          description: "Check X-Razorpay-Signature secret sync or payload handling in /api/v1/payments/webhook."
+
+      - alert: BackgroundJobBacklog
+        expr: |
+          gobeyond_notification_outbox_jobs{status="PENDING"} > 100
+          or gobeyond_notification_outbox_jobs{status="FAILED"} > 25
+          or gobeyond_notification_outbox_jobs{status="DEAD_LETTER"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification outbox backlog or dead-letter jobs detected"
+          description: "Inspect /api/v1/notifications/outbox and ARQ worker logs for delivery stalls."
+
+      - alert: DatabaseConnectionExhaustion
+        expr: |
+          (
+            gobeyond_db_pool_checked_out
+            /
+            clamp_min(gobeyond_db_pool_size + gobeyond_db_pool_overflow, 1)
+          ) > 0.85
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend SQLAlchemy DB pool > 85% utilized"
+          description: "Active DB connections are nearing configured pool_size + max_overflow limits."
+
+      - alert: HostDiskSpaceShortage
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+            /
+            clamp_min(node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}, 1)
+          ) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host root filesystem free disk space < 15% (requires node_exporter)"
+          description: "Requires host node_exporter scrape job to emit node_filesystem_* metrics."
+

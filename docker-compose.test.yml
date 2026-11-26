@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. PostgreSQL 16 Integration Test Database
+  # ==========================================
+  test-postgres:
+    image: postgres:16-alpine
+    container_name: gobeyond-test-postgres
+    restart: "no"
+    environment:
+      POSTGRES_USER: ${POSTGRES_TEST_USER:-gobeyond_test}
+      POSTGRES_PASSWORD: ${POSTGRES_TEST_PASSWORD:-gobeyond_test_pass}
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-gobeyond_test_db}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./devops/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TEST_USER:-gobeyond_test} -d ${POSTGRES_TEST_DB:-gobeyond_test_db}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - gobeyond-test-net
+
+  # ==========================================
+  # 2. Redis 7 Integration Test Instance
+  # ==========================================
+  test-redis:
+    image: redis:7-alpine
+    container_name: gobeyond-test-redis
+    restart: "no"
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - gobeyond-test-net
+
+  # ==========================================
+  # 3. Integration Test Runner
+  # ==========================================
+  test-runner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gobeyond-test-runner
+    restart: "no"
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    environment:
+      - ENVIRONMENT=integration_test
+      - DATABASE_URL=postgresql://${POSTGRES_TEST_USER:-gobeyond_test}:${POSTGRES_TEST_PASSWORD:-gobeyond_test_pass}@test-postgres:5432/${POSTGRES_TEST_DB:-gobeyond_test_db}
+      - REDIS_URL=redis://test-redis:6379/0
+      - REDIS_REQUIRED_IN_PRODUCTION=true
+      - USE_MEMORY_LOCK_FALLBACK=false
+      - ACCESS_TOKEN_EXPIRE_MINUTES=15
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - SECRET_KEY=gobeyond-test-secret-key-2026
+      - RAZORPAY_SANDBOX_MODE=true
+      - OTP_SANDBOX_MODE=true
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.seed.seed_data &&
+             pytest tests/integration -v --tb=short"
+    networks:
+      - gobeyond-test-net
+
+networks:
+  gobeyond-test-net:
+    driver: bridge
+

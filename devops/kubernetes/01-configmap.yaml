@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gobeyond-config
+  namespace: gobeyond
+data:
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+  DEFAULT_CITY: "Hyderabad"
+  DEFAULT_STATE: "Telangana"
+  DEFAULT_COUNTRY: "India"
+  REDIS_URL: "redis://gobeyond-redis-service:6379/0"
+  REDIS_REQUIRED_IN_PRODUCTION: "true"
+  USE_MEMORY_LOCK_FALLBACK: "false"
+  LOCK_EXPIRY_SECONDS: "600"
+  # Same-origin API prefix baked at frontend Docker build time; keep empty so /api/v1 hits Ingress on the active host.
+  NEXT_PUBLIC_API_URL: ""
+  INTERNAL_API_URL: "http://gobeyond-backend-service:8000"
+  BACKEND_CORS_ORIGINS: '["https://gobeyond.local","http://gobeyond.local"]'
+  COOKIE_SECURE: "false"
+  RAZORPAY_SANDBOX_MODE: "true"
+  OTP_SANDBOX_MODE: "true"
+  DB_POOL_SIZE: "6"
+  DB_MAX_OVERFLOW: "2"
+  WORKER_DB_POOL_SIZE: "10"
+  WORKER_DB_MAX_OVERFLOW: "5"
+  POSTGRES_DB: "gobeyond_db"
+  POSTGRES_USER: "gobeyond_user"
+

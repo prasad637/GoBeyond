@@ -1,0 +1,61 @@
+import datetime
+from decimal import Decimal
+from sqlalchemy import Column, Integer, String, Boolean, Float, Numeric, ForeignKey, DateTime, Text, JSON
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+from app.models.base import TimestampMixin
+
+
+class Payment(Base, TimestampMixin):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    payment_gateway = Column(String(50), default="RAZORPAY", nullable=False)
+    gateway_order_id = Column(String(100), unique=True, index=True, nullable=True)  # order_XXXXX
+    gateway_payment_id = Column(String(100), unique=True, index=True, nullable=True)  # pay_XXXXX
+    gateway_signature = Column(String(255), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(10), default="INR", nullable=False)
+    status = Column(String(50), default="INITIATED", nullable=False)  # INITIATED, AUTHORIZED, CAPTURED, FAILED, REFUNDED
+    error_message = Column(Text, nullable=True)
+    raw_payload = Column(JSON, default=dict)
+    idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
+
+    booking = relationship("Booking", back_populates="payments")
+    user = relationship("User")
+    refunds = relationship("Refund", back_populates="payment", cascade="all, delete-orphan")
+
+
+class Refund(Base, TimestampMixin):
+    __tablename__ = "refunds"
+
+    id = Column(Integer, primary_key=True, index=True)
+    payment_id = Column(Integer, ForeignKey("payments.id", ondelete="CASCADE"), nullable=False)
+    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False)
+    gateway_refund_id = Column(String(100), unique=True, index=True, nullable=True)  # rfn_XXXXX
+    amount = Column(Numeric(12, 2), nullable=False)
+    reason = Column(String(255), nullable=True)
+    status = Column(String(50), default="INITIATED", nullable=False)  # INITIATED, PROCESSED, FAILED
+
+    payment = relationship("Payment", back_populates="refunds")
+    booking = relationship("Booking")
+
+
+class Coupon(Base, TimestampMixin):
+    __tablename__ = "coupons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, index=True, nullable=False)  # e.g. BEYOND50, WELCOME100
+    description = Column(String(255), nullable=True)
+    discount_type = Column(String(20), default="PERCENTAGE", nullable=False)  # PERCENTAGE, FLAT
+    discount_value = Column(Numeric(12, 2), nullable=False)  # e.g. 20 (percent) or 150 (INR)
+    min_order_value = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    max_discount = Column(Numeric(12, 2), default=Decimal("500.00"), nullable=False)
+    valid_from = Column(DateTime, nullable=True)
+    valid_until = Column(DateTime, nullable=True)
+    usage_limit = Column(Integer, default=1000, nullable=False)
+    used_count = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+

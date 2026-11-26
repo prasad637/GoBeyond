@@ -1,0 +1,67 @@
+# ==============================================================================
+# GO BEYOND — Production Docker Compose Hardening Override
+# ==============================================================================
+# Usage (AFTER provisioning a real domain, TLS certificates & live `.env`):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Hardening enforced by this overlay:
+#   1. Strips host port exposure from postgres, redis, backend & frontend so
+#      only NGINX faces the public network.
+#   2. Binds Prometheus & Grafana strictly to host loopback (127.0.0.1) for
+#      SSH-tunneled admin access only.
+#   3. Skips automatic demo seed insertion on production API startup and runs
+#      multi-worker Uvicorn (adjust DB_POOL_SIZE so workers*(pool+overflow)+15 <= 97).
+#   4. Forces COOKIE_SECURE=true and non-debug production environment flags.
+# ==============================================================================
+
+services:
+  postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    command:
+      - sh
+      - -c
+      - "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - COOKIE_SECURE=true
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-15}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-10}
+      - REDIS_REQUIRED_IN_PRODUCTION=true
+      - USE_MEMORY_LOCK_FALLBACK=false
+
+  frontend:
+    ports: !reset []
+
+  worker:
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - REDIS_REQUIRED_IN_PRODUCTION=true
+      - USE_MEMORY_LOCK_FALLBACK=false
+
+  nginx:
+    # Once real domain DNS + Let's Encrypt certificates exist on the host,
+    # mount nginx.https.conf + /etc/letsencrypt + certbot webroot and expose 443:443:
+    # volumes:
+    #   - ./devops/nginx/nginx.https.conf:/etc/nginx/nginx.conf:ro
+    #   - /etc/letsencrypt:/etc/letsencrypt:ro
+    #   - /var/www/certbot:/var/www/certbot:ro
+    ports:
+      - "80:80"
+      # - "443:443"
+
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    ports: !override
+      - "127.0.0.1:3001:3000"
+
